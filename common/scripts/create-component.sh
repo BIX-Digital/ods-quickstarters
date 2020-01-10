@@ -6,7 +6,6 @@ set -eu
 # * build configs: pipelines
 # * build configs: images
 # * services
-# * routes
 
 # Use -gt 1 to consume two arguments per pass in the loop (e.g. each
 # argument has a corresponding value to go with it).
@@ -24,32 +23,24 @@ tailor_version=$(${TAILOR} version)
 echo "Using tailor ${tailor_version} from ${tailor_exe}"
 
 DEBUG=false
-ROUTE="false"
 STATUS=false
 FORCE=false
+QSBASE_ABS=
 while [[ $# -gt 0 ]]
 do
 key="$1"
 
 case $key in
+    -qs|--qsbasepath)
+    QSBASE="$2"
+    shift # past argument
+    ;;
     -p|--project)
     PROJECT="$2"
     shift # past argument
     ;;
     -c|--component)
     COMPONENT="$2"
-    shift # past argument
-    ;;
-    -r|--route)
-    ROUTE="$2"
-    shift # past argument
-    ;;
-    -n|--routename)
-    ROUTE_NAME="$2"
-    shift # past argument
-    ;;
-    -ne|--nexus)
-    NEXUS_HOST="$2"
     shift # past argument
     ;;
     --status)
@@ -87,12 +78,19 @@ if [ -z ${COMPONENT+x} ]; then
     echo "COMPONENT is unset, but required";
     exit 1;
 else echo "COMPONENT=${COMPONENT}"; fi
-if [ -z ${NEXUS_HOST+x} ]; then
-    echo "NEXUS_HOST is unset, but required";
+if [ -z ${QSBASE+x} ]; then
+    echo "QSBASE is unset, but required";
     exit 1;
-else echo "NEXUS_HOST=${NEXUS_HOST}"; fi
+else
+  if [ -d "${QSBASE}" ]; then
+    echo "QSBASE=${QSBASE}"
+    QSBASE_ABS="$( cd "${QSBASE}" && pwd )"
+  else
+    echo "No directory at ${QSBASE}, check -qs|--qsbasepath argument. Current working directory is: $(pwd)"
+    exit 1
+  fi
+fi
 
-echo "Route=${ROUTE}"
 echo "Params: ${tailor_verbose}"
 
 if $STATUS; then
@@ -106,7 +104,9 @@ tailor_update_in_dir() {
     if [ ${STATUS} = "true" ]; then
         $DEBUG && echo 'exec:' cd  "$dir" '&&'
         $DEBUG && echo 'exec:'     ${TAILOR} $tailor_verbose status "$@"
+        set +e
         cd "$dir" && ${TAILOR} $tailor_verbose status "$@"
+        set -e
     else
         $DEBUG && echo 'exec:' cd "$dir" '&&'
         $DEBUG && echo 'exec:    ' ${TAILOR} $tailor_verbose --non-interactive update "$@"
@@ -124,6 +124,11 @@ for devenv in dev test ; do
         "--param=COMPONENT=${COMPONENT}" \
         "--param=ENV=${devenv}"
         )
+
+    env_file="${QSBASE_ABS}/ocp.env"
+    if [ -f "$env_file" ]; then
+      TAILOR_BASE_ARGS+=(--param-file "$env_file")
+    fi
 
     echo "Creating component ${COMPONENT} in environment ${PROJECT}-${devenv}:"
 

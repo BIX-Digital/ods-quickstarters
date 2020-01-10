@@ -1,34 +1,32 @@
 // build params
+def odsImageTag = env.ODS_IMAGE_TAG ?: 'latest'
+def odsGitRef = env.ODS_GIT_REF ?: 'production'
 def projectId = env.PROJECT_ID
 def componentId = env.COMPONENT_ID.toLowerCase()
 def packageName = env.PACKAGE_NAME
 def gitUrlHttp = env.GIT_URL_HTTP
-def gitUrlSsh = env.GIT_URL_SSH
-def group = "org.osi"
+def group = env.GROUP_ID
 
-def credentialsId = projectId + "-cd-cd-user-with-password"
-def springQuickstarterBasepath = "be-java-springboot"
-def nexusHost
+def credentialsId = "${projectId}-cd-cd-user-with-password"
+def quickstarterBasepath = "be-java-springboot"
+def springCliVersion = "2.2.1.RELEASE"
 def dockerRegistry
 def gitHost
 // vars from jenkins master
 node {
-    dockerRegistry = env.DOCKER_REGISTRY
-    nexusHost = env.NEXUS_HOST
-    gitHost =  env.BITBUCKET_HOST.split(":")[0]
+  dockerRegistry = env.DOCKER_REGISTRY
+  gitHost =  env.BITBUCKET_HOST.split(":")[0]
 }
 
-def conts = containerTemplate( 
-            name: 'jnlp',
-            image: "${dockerRegistry}/cd/jenkins-slave-maven:2",
-            workingDir: '/tmp',
-            alwaysPullImage: true,
-            // TODO: Check if args: '${computer.jnlpmac} ${computer.name}' is needed
-            args: ''
-        )
+def conts = containerTemplate(
+  name: 'jnlp',
+  image: "${dockerRegistry}/cd/jenkins-slave-maven:${odsImageTag}",
+  workingDir: '/tmp',
+  alwaysPullImage: true,
+  args: ''
+)
 
-def podLabel = "quickstarter-" + springQuickstarterBasepath + "-" + projectId + "-" +componentId;
-
+def podLabel = "quickstarter-${quickstarterBasepath}-${projectId}-${componentId}"
 
 podTemplate(
       label: podLabel,
@@ -43,8 +41,7 @@ podTemplate(
           }
           stage('Install spring') {
               sh 'curl -s "https://get.sdkman.io" | bash'
-              // TODO: $SPRING_CLI_VERSION is not set - fix this
-              sh '/bin/bash -lc "source /home/jenkins/.sdkman/bin/sdkman-init.sh && sdk install springboot $SPRING_CLI_VERSION && spring --version"'
+              sh "/bin/bash -lc 'source /home/jenkins/.sdkman/bin/sdkman-init.sh && sdk install springboot ${springCliVersion} && spring --version'"
           }
           stage('Build spring project') {
             // TODO: Check if spring is in the PATH or think about alternative path
@@ -57,32 +54,31 @@ podTemplate(
                 --packaging=jar \
                 --dependencies='web,jersey,data-jpa,h2,lombok,data-rest,restdocs,security' \
                   ${componentId}"
-            withEnv(["COMPONENT=${componentId}","GROUP=${group}","SCRIPT_DIR=${springQuickstarterBasepath}"]) {
-              sh "sh ./${springQuickstarterBasepath}/postProcessProjectsettings.sh"            
+            withEnv(["COMPONENT=${componentId}","GROUP=${group}","SCRIPT_DIR=${quickstarterBasepath}"]) {
+              sh "sh ./${quickstarterBasepath}/postProcessProjectsettings.sh"
             }
           }
-
           stage('Setup OpenShift resources') {
-            sh "sh common/scripts/create-component.sh -p ${projectId} -c ${componentId} -ne ${nexusHost} --force"
+            sh "sh common/scripts/create-component.sh -qs ${quickstarterBasepath} -p ${projectId} -c ${componentId} --force"
           }
           stage('Create Jenkinsfile') {
             sh "sh common/scripts/renderJenkinsTemplate.sh \
-                  --source ${springQuickstarterBasepath}/files/Jenkinsfile.template \
+                  --source ${quickstarterBasepath}/Jenkinsfile.template \
                   --target ${componentId}/Jenkinsfile \
                   --url ${gitUrlHttp} \
                   --project-id ${projectId} \
                   --component-id ${componentId}  \
-                  --component-type ${springQuickstarterBasepath}"
-            sh "rm ${springQuickstarterBasepath}/files/Jenkinsfile.template"
+                  --component-type ${quickstarterBasepath} \
+                  --ods-image-tag ${odsImageTag} \
+                  --ods-git-ref ${odsGitRef}"
           }
           stage('Create sonar-project.properties') {
             sh "sh common/scripts/renderSonarqubeTemplate.sh \
-                  --source ${springQuickstarterBasepath}/files/sonar-project.properties.template \
+                  --source ${quickstarterBasepath}/sonar-project.properties.template \
                   --target ${componentId}/sonar-project.properties \
                   --project-id ${projectId} \
                   --component-id ${componentId}  \
-                  --component-type ${springQuickstarterBasepath}"
-            sh "rm ${springQuickstarterBasepath}/files/sonar-project.properties.template"
+                  --component-type ${quickstarterBasepath}"
           }
           // FIX: Add stage to copy from files directory, replacing cp -rv ../$SCRIPT_DIR/files/. . in postProcessProjectsettings.sh
           // Check if Jenkinsfile.template etc. are also copied (they should not be!)
@@ -94,9 +90,3 @@ podTemplate(
           }
       }
 }
-
-
-
-
-
-

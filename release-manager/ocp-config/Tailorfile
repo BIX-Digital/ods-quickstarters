@@ -1,0 +1,4 @@
+ignore-unknown-parameters true
+ignore-path bc:/spec/output/to/name,bc:/spec/output/imageLabels
+
+svc,dc,bc
